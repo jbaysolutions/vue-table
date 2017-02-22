@@ -4,14 +4,12 @@
             <thead>
                 <tr>
                     <template v-for="field in fields">
-                        <template v-if="field.visible">
-                            <template v-if="isSpecialField(field.name)">
-                                <th v-if="extractName(field.name) == '__checkbox'"
+                                <th v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
                                     :class="[field.titleClass, 'checkbox_'+extractArgs(field.name)]">
                                     <input type="checkbox" @change="toggleAllCheckboxes($event.target.checked, field.name)"
                                         :checked="checkCheckboxesState(field.name)">
                                 </th>
-                                <th v-if="extractName(field.name) == '__component'"
+                                <th v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'"
                                     @click="orderBy(field, $event)"
                                     class="{{field.titleClass || ''}} {{isSortable(field) ? 'sortable' : ''}}">
                                     {{field.title || ''}}
@@ -19,20 +17,17 @@
                                        class="{{ sortIcon(field) }}"
                                        v-bind:style="{opacity: sortIconOpacity(field)}"></i>
                                 </th>
-                                <th v-if="notIn(extractName(field.name), ['__checkbox', '__component'])"
+                                <th v-if="field.visible && isSpecialField(field.name) && notIn(extractName(field.name), ['__checkbox', '__component'])"
                                     id="{{field.name}}" class="{{field.titleClass || ''}}">
                                     {{field.title || ''}}
                                 </th>
-                            </template>
-                            <template v-else>
-                                <th @click="orderBy(field, $event)"
+                                <th v-if="field.visible && !isSpecialField(field.name)" @click="orderBy(field, $event)"
                                     id="_{{field.name}}"
                                     class="{{field.titleClass || ''}} {{isSortable(field) ? 'sortable' : ''}}">
                                     {{getTitle(field) | capitalize}}&nbsp;
                                     <i v-if="isCurrentSortField(field)" class="{{ sortIcon(field) }}" v-bind:style="{opacity: sortIconOpacity(field)}"></i>
                                 </th>
-                            </template>
-                        </template>
+
                     </template>
                 </tr>
             </thead>
@@ -40,59 +35,49 @@
                 <template v-for="(itemNumber, item) in tableData">
                     <tr @dblClick="onRowDoubleClicked(item, $event)" @click="onRowClicked(item, $event)" :render="onRowChanged(item)" :class="onRowClass(item, itemNumber)">
                         <template v-for="field in fields">
-                            <template v-if="field.visible">
-                                <template v-if="isSpecialField(field.name)">
-                                    <td v-if="extractName(field.name) == '__sequence'" class="vuetable-sequence {{field.dataClass}}"
+
+                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__sequence'" class="vuetable-sequence {{field.dataClass}}"
                                         v-html="tablePagination.from + itemNumber">
                                     </td>
-                                    <td v-if="extractName(field.name) == '__checkbox'" class="vuetable-checkboxes {{field.dataClass}}">
+                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'" class="vuetable-checkboxes {{field.dataClass}}">
                                         <input type="checkbox"
                                             @change="toggleCheckbox($event.target.checked, item, field.name)"
                                             :checked="isSelectedRow(item, field.name)">
                                     </td>
-                                    <td v-if="field.name == '__actions'" class="vuetable-actions {{field.dataClass}}">
+                                    <td v-if="field.visible && isSpecialField(field.name) && field.name == '__actions'" class="vuetable-actions {{field.dataClass}}">
                                         <template v-for="action in itemActions">
                                             <button class="{{ action.class }}" @click="callAction(action.name, item)" v-attr="action.extra">
                                                 <i class="{{ action.icon }}"></i> {{ action.label }}
                                             </button>
                                         </template>
                                     </td>
-                                    <td v-if="extractName(field.name) == '__component'" class="{{field.dataClass}}">
+                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'" class="{{field.dataClass}}">
                                         <component :is="extractArgs(field.name)" :row-data="item"></component>
                                     </td>
-                                </template>
-                                <template v-else>
-                                    <td v-if="hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                                    <td v-if="field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
                                         {{{ callCallback(field, item) }}}
                                     </td>
-                                    <td v-else class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                                    <td v-else v-if="field.visible && !isSpecialField(field.name)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
                                         {{{ getObjectValue(item, field.name, "") }}}
                                     </td>
-                                </template>
-                            </template>
+
                         </template>
                     </tr>
-                    <template v-if="useDetailRow">
-                      <template v-if="useDetailRowComponent">
-                        <tr v-if="isVisibleDetailRow(item[detailRowId])"
-                          @click="onDetailRowClick(item, $event)"
-                          :transition="detailRowTransition"
-                          :class="[detailRowClass]"
-                        >
-                          <td :colspan="countVisibleFields">
+                    <tr v-if="useDetailRow && useDetailRowComponent && isVisibleDetailRow(item[detailRowId])"
+                        @click="onDetailRowClick(item, $event)"
+                        :transition="detailRowTransition"
+                        :class="[detailRowClass]"
+                            >
+                        <td :colspan="countVisibleFields">
                             <component :is="detailRowComponent" :row-data="item"></component>
-                          </td>
-                        </tr>
-                      </template>
-                      <template v-else>
-                        <tr v-if="isVisibleDetailRow(item[detailRowId])"
-                          v-html="callDetailRowCallback(item)"
-                          @click="onDetailRowClick(item, $event)"
-                          :transition="detailRowTransition"
-                          :class="[detailRowClass]"
+                        </td>
+                    </tr>
+                    <tr v-if="useDetailRow && !useDetailRowComponent && isVisibleDetailRow(item[detailRowId])"
+                        v-html="callDetailRowCallback(item)"
+                        @click="onDetailRowClick(item, $event)"
+                        :transition="detailRowTransition"
+                        :class="[detailRowClass]"
                         ></tr>
-                      </template>
-                    </template>
                 </template>
             </tbody>
         </table>
