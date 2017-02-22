@@ -5,11 +5,9 @@
             <i :class="icons.prev"></i>
         </a>
         <select id="vuetable-pagination-dropdown" class="{{dropdownClass}}" @change="selectPage($event)">
-            <template v-for="n in totalPage">
-                <option class="{{pageClass}}" value="{{n+1}}">
-                    {{pageText}} {{n+1}}
-                </option>
-            </template>
+            <option v-for="n in totalPage" class="{{pageClass}}" value="{{n+1}}">
+                {{pageText}} {{n+1}}
+            </option>
         </select>
         <a @click="loadPage('next')"
              class="{{linkClass}} {{isOnLastPage ? disabledClass : ''}}">
