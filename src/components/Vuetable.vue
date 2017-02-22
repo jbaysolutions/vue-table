@@ -3,32 +3,28 @@
         <table class="vuetable {{tableClass}}">
             <thead>
                 <tr>
-                    <template v-for="field in fields">
-                                <th v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
-                                    :class="[field.titleClass, 'checkbox_'+extractArgs(field.name)]">
-                                    <input type="checkbox" @change="toggleAllCheckboxes($event.target.checked, field.name)"
-                                        :checked="checkCheckboxesState(field.name)">
-                                </th>
-                                <th v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'"
-                                    @click="orderBy(field, $event)"
-                                    class="{{field.titleClass || ''}} {{isSortable(field) ? 'sortable' : ''}}">
-                                    {{field.title || ''}}
-                                    <i v-if="isCurrentSortField(field) && field.title"
-                                       class="{{ sortIcon(field) }}"
-                                       v-bind:style="{opacity: sortIconOpacity(field)}"></i>
-                                </th>
-                                <th v-if="field.visible && isSpecialField(field.name) && notIn(extractName(field.name), ['__checkbox', '__component'])"
-                                    id="{{field.name}}" class="{{field.titleClass || ''}}">
-                                    {{field.title || ''}}
-                                </th>
-                                <th v-if="field.visible && !isSpecialField(field.name)" @click="orderBy(field, $event)"
-                                    id="_{{field.name}}"
-                                    class="{{field.titleClass || ''}} {{isSortable(field) ? 'sortable' : ''}}">
-                                    {{getTitle(field) | capitalize}}&nbsp;
-                                    <i v-if="isCurrentSortField(field)" class="{{ sortIcon(field) }}" v-bind:style="{opacity: sortIconOpacity(field)}"></i>
-                                </th>
-
-                    </template>
+                    <th v-for="field in fields"
+                        :class="getHeaderFieldClasses(field)"
+                        :id="getHeaderFieldId(field)"
+                        @click="orderBy(field, $event)"
+                    >
+                        <input v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
+                               type="checkbox" @change="toggleAllCheckboxes($event.target.checked, field.name)"
+                               :checked="checkCheckboxesState(field.name)">
+                        <div v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'">
+                            {{field.title || ''}}
+                            <i v-if="isCurrentSortField(field) && field.title"
+                               class="{{ sortIcon(field) }}"
+                               v-bind:style="{opacity: sortIconOpacity(field)}"></i>
+                        </div>
+                        <div v-if="field.visible && isSpecialField(field.name) && notIn(extractName(field.name), ['__checkbox', '__component'])">
+                            {{field.title || ''}}
+                        </div>
+                        <div v-if="field.visible && !isSpecialField(field.name)">
+                            {{getTitle(field) | capitalize}}&nbsp;
+                            <i v-if="isCurrentSortField(field)" class="{{ sortIcon(field) }}" v-bind:style="{opacity: sortIconOpacity(field)}"></i>
+                        </div>
+                    </th>
                 </tr>
             </thead>
             <tbody v-cloak>
@@ -54,10 +50,10 @@
                                     <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'" class="{{field.dataClass}}">
                                         <component :is="extractArgs(field.name)" :row-data="item"></component>
                                     </td>
-                                    <td v-if="field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                                    <td v-if="!field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
                                         {{{ callCallback(field, item) }}}
                                     </td>
-                                    <td v-else v-if="field.visible && !isSpecialField(field.name)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                                    <td v-else v-if="!field.visible && !isSpecialField(field.name)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
                                         {{{ getObjectValue(item, field.name, "") }}}
                                     </td>
 
@@ -92,7 +88,6 @@
         </div>
     </div>
 </template>
-
 <script>
 export default {
     props: {
@@ -513,6 +508,7 @@ export default {
             this.$broadcast(this.eventPrefix + eventName, args)
         },
         orderBy: function(field, event) {
+            //console.log("orderBy field='" + field.name + "', sortable=" + this.isSortable(field));
             if ( ! this.isSortable(field)) {
                 return
             }
@@ -631,6 +627,49 @@ export default {
                 this.currentPage = page
                 this.loadData()
             }
+        },
+        getHeaderFieldClasses: function(field) {
+            var classes = [];
+            if (field.titleClass !== null) {
+                classes.push(field.titleClass);
+            }
+
+            // case 1, checkbox
+            if (this.isSpecialField(field.name) && this.extractName(field.name) == '__checkbox') {
+                classes.push("checkbox"+this.extractArgs(field.name));
+            }
+
+            // sortable?
+            if (this.isSortable(field)) {
+                classes.push("sortable");
+            }
+            return classes;
+        },
+        getHeaderFieldId: function(field) {
+            if (field.visible && this.isSpecialField(field.name) && this.notIn(this.extractName(field.name), ['__checkbox', '__component'])) {
+                console.log("### ID=" + field.name);
+                return field.name;
+            } else if (field.visible && !this.isSpecialField(field.name)) {
+                console.log("### ID=_" + field.name);
+                return "_" + field.name;
+            }
+        },
+        getBodyFieldClasses: function(field) {
+            var classes = [];
+            if (field.titleClass !== null) {
+                classes.push(field.titleClass);
+            }
+
+            // case 1, checkbox
+            if (this.isSpecialField(field.name) && this.extractName(field.name) == '__checkbox') {
+                classes.push("checkbox"+this.extractArgs(field.name));
+            }
+
+            // sortable?
+            if (this.isSortable(field)) {
+                classes.push("sortable");
+            }
+            return classes;
         },
         isSpecialField: function(fieldName) {
             // return fieldName.startsWith('__')
