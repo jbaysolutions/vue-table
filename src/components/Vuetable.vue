@@ -28,53 +28,32 @@
                 </tr>
             </thead>
             <tbody v-cloak>
-                <template v-for="(itemNumber, item) in tableData">
-                    <tr @dblClick="onRowDoubleClicked(item, $event)" @click="onRowClicked(item, $event)" :render="onRowChanged(item)" :class="onRowClass(item, itemNumber)">
-                        <template v-for="field in fields">
-
-                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__sequence'" class="vuetable-sequence {{field.dataClass}}"
-                                        v-html="tablePagination.from + itemNumber">
-                                    </td>
-                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'" class="vuetable-checkboxes {{field.dataClass}}">
-                                        <input type="checkbox"
-                                            @change="toggleCheckbox($event.target.checked, item, field.name)"
-                                            :checked="isSelectedRow(item, field.name)">
-                                    </td>
-                                    <td v-if="field.visible && isSpecialField(field.name) && field.name == '__actions'" class="vuetable-actions {{field.dataClass}}">
-                                        <template v-for="action in itemActions">
-                                            <button class="{{ action.class }}" @click="callAction(action.name, item)" v-attr="action.extra">
-                                                <i class="{{ action.icon }}"></i> {{ action.label }}
-                                            </button>
-                                        </template>
-                                    </td>
-                                    <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'" class="{{field.dataClass}}">
-                                        <component :is="extractArgs(field.name)" :row-data="item"></component>
-                                    </td>
-                                    <td v-if="!field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
-                                        {{{ callCallback(field, item) }}}
-                                    </td>
-                                    <td v-else v-if="!field.visible && !isSpecialField(field.name)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
-                                        {{{ getObjectValue(item, field.name, "") }}}
-                                    </td>
-
-                        </template>
-                    </tr>
-                    <tr v-if="useDetailRow && useDetailRowComponent && isVisibleDetailRow(item[detailRowId])"
-                        @click="onDetailRowClick(item, $event)"
-                        :transition="detailRowTransition"
-                        :class="[detailRowClass]"
-                            >
-                        <td :colspan="countVisibleFields">
-                            <component :is="detailRowComponent" :row-data="item"></component>
+                <tr v-for="(itemNumber, item) in tableData" :render="onRowChanged(item)" :class="onRowClass(item, itemNumber)">
+                    <template v-for="field in fields">
+                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__sequence'" class="vuetable-sequence {{field.dataClass}}"
+                            v-html="tablePagination.from + itemNumber">
                         </td>
-                    </tr>
-                    <tr v-if="useDetailRow && !useDetailRowComponent && isVisibleDetailRow(item[detailRowId])"
-                        v-html="callDetailRowCallback(item)"
-                        @click="onDetailRowClick(item, $event)"
-                        :transition="detailRowTransition"
-                        :class="[detailRowClass]"
-                        ></tr>
-                </template>
+                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'" class="vuetable-checkboxes {{field.dataClass}}">
+                            <input type="checkbox"
+                                   @change="toggleCheckbox($event.target.checked, item, field.name)"
+                                   :checked="isSelectedRow(item, field.name)">
+                        </td>
+                        <td v-if="field.visible && isSpecialField(field.name) && field.name == '__actions'" class="vuetable-actions {{field.dataClass}}">
+                            <button v-for="action in itemActions" class="{{ action.class }}" @click="callAction(action.name, item)" v-attr="action.extra">
+                                <i class="{{ action.icon }}"></i> {{ action.label }}
+                            </button>
+                        </td>
+                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'" class="{{field.dataClass}}">
+                            <component :is="extractArgs(field.name)" :row-data="item"></component>
+                        </td>
+                        <td v-if="field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                            {{{ callCallback(field, item) }}}
+                        </td>
+                        <td v-if="field.visible && !isSpecialField(field.name) && !hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                            {{{ getObjectValue(item, field.name, "") }}}
+                        </td>
+                    </template>
+                </tr>
             </tbody>
         </table>
         <div v-if="showPagination" class="vuetable-pagination {{paginationClass}}">
@@ -832,6 +811,7 @@ export default {
             this.dispatchEvent('row-changed', dataItem)
             return true
         },
+/*
         onRowClicked: function(dataItem, event) {
             this.$dispatch(this.eventPrefix+'row-clicked', dataItem, event)
             return true
@@ -839,13 +819,17 @@ export default {
         onRowDoubleClicked: function(dataItem, event) {
             this.$dispatch(this.eventPrefix + 'row-dblclicked', dataItem, event);
         },
+*/
         onCellClicked: function(dataItem, field, event) {
+            console.log("cell click!");
             this.$dispatch(this.eventPrefix+'cell-clicked', dataItem, field, event)
         },
         onCellDoubleClicked: function(dataItem, field, event) {
+            console.log("cell double click!");
             this.$dispatch(this.eventPrefix+'cell-dblclicked', dataItem, field, event)
         },
         onDetailRowClick: function(dataItem, event) {
+            console.log("detail row click!");
             this.$dispatch(this.eventPrefix+'detail-row-clicked', dataItem, event)
         },
         callPaginationConfig: function() {
