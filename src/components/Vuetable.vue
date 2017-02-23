@@ -3,24 +3,25 @@
         <table class="vuetable {{tableClass}}">
             <thead>
                 <tr>
-                    <th v-for="field in fields"
+                    <th v-if="field.visible"
+                        v-for="field in fields"
                         :class="getHeaderFieldClasses(field)"
                         :id="getHeaderFieldId(field)"
                         @click="orderBy(field, $event)"
                     >
-                        <input v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
+                        <input v-if="isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
                                type="checkbox" @change="toggleAllCheckboxes($event.target.checked, field.name)"
                                :checked="checkCheckboxesState(field.name)">
-                        <div v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'">
+                        <div v-if="isSpecialField(field.name) && extractName(field.name) == '__component'">
                             {{field.title || ''}}
                             <i v-if="isCurrentSortField(field) && field.title"
                                class="{{ sortIcon(field) }}"
                                v-bind:style="{opacity: sortIconOpacity(field)}"></i>
                         </div>
-                        <div v-if="field.visible && isSpecialField(field.name) && notIn(extractName(field.name), ['__checkbox', '__component'])">
+                        <div v-if="isSpecialField(field.name) && notIn(extractName(field.name), ['__checkbox', '__component'])">
                             {{field.title || ''}}
                         </div>
-                        <div v-if="field.visible && !isSpecialField(field.name)">
+                        <div v-if="!isSpecialField(field.name)">
                             {{getTitle(field) | capitalize}}&nbsp;
                             <i v-if="isCurrentSortField(field)" class="{{ sortIcon(field) }}" v-bind:style="{opacity: sortIconOpacity(field)}"></i>
                         </div>
@@ -29,30 +30,42 @@
             </thead>
             <tbody v-cloak>
                 <tr v-for="(itemNumber, item) in tableData" :render="onRowChanged(item)" :class="onRowClass(item, itemNumber)">
-                    <template v-for="field in fields">
-                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__sequence'" class="vuetable-sequence {{field.dataClass}}"
-                            v-html="tablePagination.from + itemNumber">
-                        </td>
-                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__checkbox'" class="vuetable-checkboxes {{field.dataClass}}">
-                            <input type="checkbox"
-                                   @change="toggleCheckbox($event.target.checked, item, field.name)"
-                                   :checked="isSelectedRow(item, field.name)">
-                        </td>
-                        <td v-if="field.visible && isSpecialField(field.name) && field.name == '__actions'" class="vuetable-actions {{field.dataClass}}">
-                            <button v-for="action in itemActions" class="{{ action.class }}" @click="callAction(action.name, item)" v-attr="action.extra">
-                                <i class="{{ action.icon }}"></i> {{ action.label }}
-                            </button>
-                        </td>
-                        <td v-if="field.visible && isSpecialField(field.name) && extractName(field.name) == '__component'" class="{{field.dataClass}}">
-                            <component :is="extractArgs(field.name)" :row-data="item"></component>
-                        </td>
-                        <td v-if="field.visible && !isSpecialField(field.name) && hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                    <td v-if="field.visible"
+                        v-for="field in fields"
+                        :class="getBodyFieldClasses(field)"
+                        @click="onCellClicked(item, field, $event)"
+                        @dblclick="onCellDoubleClicked(item, field, $event)"
+                    >
+                        <div v-if="isSpecialField(field.name) && extractName(field.name) == '__sequence'">
+                            {{{ tablePagination.from + itemNumber }}}
+                        </div>
+
+                        <input v-if="isSpecialField(field.name) && extractName(field.name) == '__checkbox'"
+                               type="checkbox"
+                               @change="toggleCheckbox($event.target.checked, item, field.name)"
+                               :checked="isSelectedRow(item, field.name)">
+
+                        <button v-if="isSpecialField(field.name) && field.name == '__actions'"
+                                v-for="action in itemActions"
+                                class="{{ action.class }}"
+                                @click="callAction(action.name, item)"
+                                v-attr="action.extra">
+                            <i class="{{ action.icon }}"></i> {{ action.label }}
+                        </button>
+
+                        <component  v-if="isSpecialField(field.name) && extractName(field.name) == '__component'"
+                                    :is="extractArgs(field.name)"
+                                    :row-data="item">
+                        </component>
+
+                        <div v-if="!isSpecialField(field.name) && hasCallback(field)">
                             {{{ callCallback(field, item) }}}
-                        </td>
-                        <td v-if="field.visible && !isSpecialField(field.name) && !hasCallback(field)" class="{{field.dataClass}}" @click="onCellClicked(item, field, $event)" @dblclick="onCellDoubleClicked(item, field, $event)">
+                        </div>
+
+                        <div v-if="!isSpecialField(field.name) && !hasCallback(field)">
                             {{{ getObjectValue(item, field.name, "") }}}
-                        </td>
-                    </template>
+                        </div>
+                    </td>
                 </tr>
             </tbody>
         </table>
@@ -625,29 +638,35 @@ export default {
             return classes;
         },
         getHeaderFieldId: function(field) {
-            if (field.visible && this.isSpecialField(field.name) && this.notIn(this.extractName(field.name), ['__checkbox', '__component'])) {
+            if (this.isSpecialField(field.name) && this.notIn(this.extractName(field.name), ['__checkbox', '__component'])) {
                 console.log("### ID=" + field.name);
                 return field.name;
-            } else if (field.visible && !this.isSpecialField(field.name)) {
+            } else if (!this.isSpecialField(field.name)) {
                 console.log("### ID=_" + field.name);
                 return "_" + field.name;
             }
         },
         getBodyFieldClasses: function(field) {
             var classes = [];
-            if (field.titleClass !== null) {
-                classes.push(field.titleClass);
+            if (field.dataClass !== null) {
+                classes.push(field.dataClass);
             }
 
-            // case 1, checkbox
+            // sequence
+            if (this.isSpecialField(field.name) && this.extractName(field.name) == '__sequence') {
+                classes.push("vuetable-sequence");
+            }
+
+            // checkbox
             if (this.isSpecialField(field.name) && this.extractName(field.name) == '__checkbox') {
-                classes.push("checkbox"+this.extractArgs(field.name));
+                classes.push("vuetable-checkboxes");
             }
 
-            // sortable?
-            if (this.isSortable(field)) {
-                classes.push("sortable");
+            // actions
+            if (this.isSpecialField(field.name) && field.name == '__actions') {
+                classes.push("vuetable-actions");
             }
+
             return classes;
         },
         isSpecialField: function(fieldName) {
@@ -821,12 +840,16 @@ export default {
         },
 */
         onCellClicked: function(dataItem, field, event) {
-            console.log("cell click!");
-            this.$dispatch(this.eventPrefix+'cell-clicked', dataItem, field, event)
+            if (!this.isSpecialField(field.name)) {
+                console.log("cell click!");
+                this.$dispatch(this.eventPrefix + 'cell-clicked', dataItem, field, event)
+            }
         },
         onCellDoubleClicked: function(dataItem, field, event) {
-            console.log("cell double click!");
-            this.$dispatch(this.eventPrefix+'cell-dblclicked', dataItem, field, event)
+            if (!this.isSpecialField(field.name)) {
+                console.log("cell double click!");
+                this.$dispatch(this.eventPrefix + 'cell-dblclicked', dataItem, field, event)
+            }
         },
         onDetailRowClick: function(dataItem, event) {
             console.log("detail row click!");

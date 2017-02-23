@@ -1,305 +1,4 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-var Vue // late bind
-var map = Object.create(null)
-var shimmed = false
-var isBrowserify = false
-
-/**
- * Determine compatibility and apply patch.
- *
- * @param {Function} vue
- * @param {Boolean} browserify
- */
-
-exports.install = function (vue, browserify) {
-  if (shimmed) return
-  shimmed = true
-
-  Vue = vue
-  isBrowserify = browserify
-
-  exports.compatible = !!Vue.internalDirectives
-  if (!exports.compatible) {
-    console.warn(
-      '[HMR] vue-loader hot reload is only compatible with ' +
-      'Vue.js 1.0.0+.'
-    )
-    return
-  }
-
-  // patch view directive
-  patchView(Vue.internalDirectives.component)
-  console.log('[HMR] Vue component hot reload shim applied.')
-  // shim router-view if present
-  var routerView = Vue.elementDirective('router-view')
-  if (routerView) {
-    patchView(routerView)
-    console.log('[HMR] vue-router <router-view> hot reload shim applied.')
-  }
-}
-
-/**
- * Shim the view directive (component or router-view).
- *
- * @param {Object} View
- */
-
-function patchView (View) {
-  var unbuild = View.unbuild
-  View.unbuild = function (defer) {
-    if (!this.hotUpdating) {
-      var prevComponent = this.childVM && this.childVM.constructor
-      removeView(prevComponent, this)
-      // defer = true means we are transitioning to a new
-      // Component. Register this new component to the list.
-      if (defer) {
-        addView(this.Component, this)
-      }
-    }
-    // call original
-    return unbuild.call(this, defer)
-  }
-}
-
-/**
- * Add a component view to a Component's hot list
- *
- * @param {Function} Component
- * @param {Directive} view - view directive instance
- */
-
-function addView (Component, view) {
-  var id = Component && Component.options.hotID
-  if (id) {
-    if (!map[id]) {
-      map[id] = {
-        Component: Component,
-        views: [],
-        instances: []
-      }
-    }
-    map[id].views.push(view)
-  }
-}
-
-/**
- * Remove a component view from a Component's hot list
- *
- * @param {Function} Component
- * @param {Directive} view - view directive instance
- */
-
-function removeView (Component, view) {
-  var id = Component && Component.options.hotID
-  if (id) {
-    map[id].views.$remove(view)
-  }
-}
-
-/**
- * Create a record for a hot module, which keeps track of its construcotr,
- * instnaces and views (component directives or router-views).
- *
- * @param {String} id
- * @param {Object} options
- */
-
-exports.createRecord = function (id, options) {
-  if (typeof options === 'function') {
-    options = options.options
-  }
-  if (typeof options.el !== 'string' && typeof options.data !== 'object') {
-    makeOptionsHot(id, options)
-    map[id] = {
-      Component: null,
-      views: [],
-      instances: []
-    }
-  }
-}
-
-/**
- * Make a Component options object hot.
- *
- * @param {String} id
- * @param {Object} options
- */
-
-function makeOptionsHot (id, options) {
-  options.hotID = id
-  injectHook(options, 'created', function () {
-    var record = map[id]
-    if (!record.Component) {
-      record.Component = this.constructor
-    }
-    record.instances.push(this)
-  })
-  injectHook(options, 'beforeDestroy', function () {
-    map[id].instances.$remove(this)
-  })
-}
-
-/**
- * Inject a hook to a hot reloadable component so that
- * we can keep track of it.
- *
- * @param {Object} options
- * @param {String} name
- * @param {Function} hook
- */
-
-function injectHook (options, name, hook) {
-  var existing = options[name]
-  options[name] = existing
-    ? Array.isArray(existing)
-      ? existing.concat(hook)
-      : [existing, hook]
-    : [hook]
-}
-
-/**
- * Update a hot component.
- *
- * @param {String} id
- * @param {Object|null} newOptions
- * @param {String|null} newTemplate
- */
-
-exports.update = function (id, newOptions, newTemplate) {
-  var record = map[id]
-  // force full-reload if an instance of the component is active but is not
-  // managed by a view
-  if (!record || (record.instances.length && !record.views.length)) {
-    console.log('[HMR] Root or manually-mounted instance modified. Full reload may be required.')
-    if (!isBrowserify) {
-      window.location.reload()
-    } else {
-      // browserify-hmr somehow sends incomplete bundle if we reload here
-      return
-    }
-  }
-  if (!isBrowserify) {
-    // browserify-hmr already logs this
-    console.log('[HMR] Updating component: ' + format(id))
-  }
-  var Component = record.Component
-  // update constructor
-  if (newOptions) {
-    // in case the user exports a constructor
-    Component = record.Component = typeof newOptions === 'function'
-      ? newOptions
-      : Vue.extend(newOptions)
-    makeOptionsHot(id, Component.options)
-  }
-  if (newTemplate) {
-    Component.options.template = newTemplate
-  }
-  // handle recursive lookup
-  if (Component.options.name) {
-    Component.options.components[Component.options.name] = Component
-  }
-  // reset constructor cached linker
-  Component.linker = null
-  // reload all views
-  record.views.forEach(function (view) {
-    updateView(view, Component)
-  })
-  // flush devtools
-  if (window.__VUE_DEVTOOLS_GLOBAL_HOOK__) {
-    window.__VUE_DEVTOOLS_GLOBAL_HOOK__.emit('flush')
-  }
-}
-
-/**
- * Update a component view instance
- *
- * @param {Directive} view
- * @param {Function} Component
- */
-
-function updateView (view, Component) {
-  if (!view._bound) {
-    return
-  }
-  view.Component = Component
-  view.hotUpdating = true
-  // disable transitions
-  view.vm._isCompiled = false
-  // save state
-  var state = extractState(view.childVM)
-  // remount, make sure to disable keep-alive
-  var keepAlive = view.keepAlive
-  view.keepAlive = false
-  view.mountComponent()
-  view.keepAlive = keepAlive
-  // restore state
-  restoreState(view.childVM, state, true)
-  // re-eanble transitions
-  view.vm._isCompiled = true
-  view.hotUpdating = false
-}
-
-/**
- * Extract state from a Vue instance.
- *
- * @param {Vue} vm
- * @return {Object}
- */
-
-function extractState (vm) {
-  return {
-    cid: vm.constructor.cid,
-    data: vm.$data,
-    children: vm.$children.map(extractState)
-  }
-}
-
-/**
- * Restore state to a reloaded Vue instance.
- *
- * @param {Vue} vm
- * @param {Object} state
- */
-
-function restoreState (vm, state, isRoot) {
-  var oldAsyncConfig
-  if (isRoot) {
-    // set Vue into sync mode during state rehydration
-    oldAsyncConfig = Vue.config.async
-    Vue.config.async = false
-  }
-  // actual restore
-  if (isRoot || !vm._props) {
-    vm.$data = state.data
-  } else {
-    Object.keys(state.data).forEach(function (key) {
-      if (!vm._props[key]) {
-        // for non-root, only restore non-props fields
-        vm.$data[key] = state.data[key]
-      }
-    })
-  }
-  // verify child consistency
-  var hasSameChildren = vm.$children.every(function (c, i) {
-    return state.children[i] && state.children[i].cid === c.constructor.cid
-  })
-  if (hasSameChildren) {
-    // rehydrate children
-    vm.$children.forEach(function (c, i) {
-      restoreState(c, state.children[i])
-    })
-  }
-  if (isRoot) {
-    Vue.config.async = oldAsyncConfig
-  }
-}
-
-function format (id) {
-  var match = id.match(/[^\/]+\.vue$/)
-  return match ? match[0] : id
-}
-
-},{}],2:[function(require,module,exports){
 var inserted = exports.cache = {}
 
 exports.insert = function (css) {
@@ -319,9 +18,9 @@ exports.insert = function (css) {
   return elem
 }
 
-},{}],3:[function(require,module,exports){
+},{}],2:[function(require,module,exports){
 var __vueify_insert__ = require("vueify/lib/insert-css")
-var __vueify_style__ = __vueify_insert__.insert("\n.vuetable th.sortable:hover {\n  color: #2185d0;\n  cursor: pointer;\n}\n.vuetable-actions {\n  width: 15%;\n  padding: 12px 0px;\n  text-align: center;\n}\n.vuetable-pagination {\n  background: #f9fafb !important;\n}\n.vuetable-pagination-info {\n  margin-top: auto;\n  margin-bottom: auto;\n}\n")
+var __vueify_style__ = __vueify_insert__.insert(".vuetable th.sortable:hover{color:#2185d0;cursor:pointer}.vuetable-actions{width:15%;padding:12px 0;text-align:center}.vuetable-pagination{background:#f9fafb!important}.vuetable-pagination-info{margin-top:auto;margin-bottom:auto}")
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -864,29 +563,35 @@ exports.default = {
             return classes;
         },
         getHeaderFieldId: function getHeaderFieldId(field) {
-            if (field.visible && this.isSpecialField(field.name) && this.notIn(this.extractName(field.name), ['__checkbox', '__component'])) {
+            if (this.isSpecialField(field.name) && this.notIn(this.extractName(field.name), ['__checkbox', '__component'])) {
                 console.log("### ID=" + field.name);
                 return field.name;
-            } else if (field.visible && !this.isSpecialField(field.name)) {
+            } else if (!this.isSpecialField(field.name)) {
                 console.log("### ID=_" + field.name);
                 return "_" + field.name;
             }
         },
         getBodyFieldClasses: function getBodyFieldClasses(field) {
             var classes = [];
-            if (field.titleClass !== null) {
-                classes.push(field.titleClass);
+            if (field.dataClass !== null) {
+                classes.push(field.dataClass);
             }
 
-            // case 1, checkbox
+            // sequence
+            if (this.isSpecialField(field.name) && this.extractName(field.name) == '__sequence') {
+                classes.push("vuetable-sequence");
+            }
+
+            // checkbox
             if (this.isSpecialField(field.name) && this.extractName(field.name) == '__checkbox') {
-                classes.push("checkbox" + this.extractArgs(field.name));
+                classes.push("vuetable-checkboxes");
             }
 
-            // sortable?
-            if (this.isSortable(field)) {
-                classes.push("sortable");
+            // actions
+            if (this.isSpecialField(field.name) && field.name == '__actions') {
+                classes.push("vuetable-actions");
             }
+
             return classes;
         },
         isSpecialField: function isSpecialField(fieldName) {
@@ -1057,12 +762,16 @@ exports.default = {
                 },
         */
         onCellClicked: function onCellClicked(dataItem, field, event) {
-            console.log("cell click!");
-            this.$dispatch(this.eventPrefix + 'cell-clicked', dataItem, field, event);
+            if (!this.isSpecialField(field.name)) {
+                console.log("cell click!");
+                this.$dispatch(this.eventPrefix + 'cell-clicked', dataItem, field, event);
+            }
         },
         onCellDoubleClicked: function onCellDoubleClicked(dataItem, field, event) {
-            console.log("cell double click!");
-            this.$dispatch(this.eventPrefix + 'cell-dblclicked', dataItem, field, event);
+            if (!this.isSpecialField(field.name)) {
+                console.log("cell double click!");
+                this.$dispatch(this.eventPrefix + 'cell-dblclicked', dataItem, field, event);
+            }
         },
         onDetailRowClick: function onDetailRowClick(dataItem, event) {
             console.log("detail row click!");
@@ -1144,22 +853,9 @@ exports.default = {
     }
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n<div class=\"{{wrapperClass}}\">\n    <table class=\"vuetable {{tableClass}}\">\n        <thead>\n            <tr>\n                <th v-for=\"field in fields\" :class=\"getHeaderFieldClasses(field)\" :id=\"getHeaderFieldId(field)\" @click=\"orderBy(field, $event)\">\n                    <input v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__checkbox'\" type=\"checkbox\" @change=\"toggleAllCheckboxes($event.target.checked, field.name)\" :checked=\"checkCheckboxesState(field.name)\">\n                    <div v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__component'\">\n                        {{field.title || ''}}\n                        <i v-if=\"isCurrentSortField(field) &amp;&amp; field.title\" class=\"{{ sortIcon(field) }}\" v-bind:style=\"{opacity: sortIconOpacity(field)}\"></i>\n                    </div>\n                    <div v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; notIn(extractName(field.name), ['__checkbox', '__component'])\">\n                        {{field.title || ''}}\n                    </div>\n                    <div v-if=\"field.visible &amp;&amp; !isSpecialField(field.name)\">\n                        {{getTitle(field) | capitalize}}&nbsp;\n                        <i v-if=\"isCurrentSortField(field)\" class=\"{{ sortIcon(field) }}\" v-bind:style=\"{opacity: sortIconOpacity(field)}\"></i>\n                    </div>\n                </th>\n            </tr>\n        </thead>\n        <tbody v-cloak=\"\">\n            <tr v-for=\"(itemNumber, item) in tableData\" :render=\"onRowChanged(item)\" :class=\"onRowClass(item, itemNumber)\">\n                <template v-for=\"field in fields\">\n                            <td v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__sequence'\" class=\"vuetable-sequence {{field.dataClass}}\" v-html=\"tablePagination.from + itemNumber\">\n                            </td>\n                            <td v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__checkbox'\" class=\"vuetable-checkboxes {{field.dataClass}}\">\n                                <input type=\"checkbox\" @change=\"toggleCheckbox($event.target.checked, item, field.name)\" :checked=\"isSelectedRow(item, field.name)\">\n                            </td>\n                            <td v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; field.name == '__actions'\" class=\"vuetable-actions {{field.dataClass}}\">\n                                <button v-for=\"action in itemActions\" class=\"{{ action.class }}\" @click=\"callAction(action.name, item)\" v-attr=\"action.extra\">\n                                    <i class=\"{{ action.icon }}\"></i> {{ action.label }}\n                                </button>\n                            </td>\n                            <td v-if=\"field.visible &amp;&amp; isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__component'\" class=\"{{field.dataClass}}\">\n                                <component :is=\"extractArgs(field.name)\" :row-data=\"item\"></component>\n                            </td>\n                            <td v-if=\"field.visible &amp;&amp; !isSpecialField(field.name) &amp;&amp; hasCallback(field)\" class=\"{{field.dataClass}}\" @click=\"onCellClicked(item, field, $event)\" @dblclick=\"onCellDoubleClicked(item, field, $event)\">\n                                {{{ callCallback(field, item) }}}\n                            </td>\n                            <td v-if=\"field.visible &amp;&amp; !isSpecialField(field.name) &amp;&amp; !hasCallback(field)\" class=\"{{field.dataClass}}\" @click=\"onCellClicked(item, field, $event)\" @dblclick=\"onCellDoubleClicked(item, field, $event)\">\n                                {{{ getObjectValue(item, field.name, \"\") }}}\n                            </td>\n                </template>\n            </tr>\n        </tbody>\n    </table>\n    <div v-if=\"showPagination\" class=\"vuetable-pagination {{paginationClass}}\">\n        <div class=\"vuetable-pagination-info {{paginationInfoClass}}\" v-html=\"paginationInfo\">\n        </div>\n        <div v-show=\"tablePagination &amp;&amp; tablePagination.last_page > 1\" class=\"vuetable-pagination-component {{paginationComponentClass}}\">\n            <component v-ref:pagination=\"\" :is=\"paginationComponent\"></component>\n        </div>\n    </div>\n</div>\n"
-if (module.hot) {(function () {  module.hot.accept()
-  var hotAPI = require("vue-hot-reload-api")
-  hotAPI.install(require("vue"), true)
-  if (!hotAPI.compatible) return
-  module.hot.dispose(function () {
-    __vueify_insert__.cache["\n.vuetable th.sortable:hover {\n  color: #2185d0;\n  cursor: pointer;\n}\n.vuetable-actions {\n  width: 15%;\n  padding: 12px 0px;\n  text-align: center;\n}\n.vuetable-pagination {\n  background: #f9fafb !important;\n}\n.vuetable-pagination-info {\n  margin-top: auto;\n  margin-bottom: auto;\n}\n"] = false
-    document.head.removeChild(__vueify_style__)
-  })
-  if (!module.hot.data) {
-    hotAPI.createRecord("_v-00705de0", module.exports)
-  } else {
-    hotAPI.update("_v-00705de0", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
-  }
-})()}
-},{"vue":"vue","vue-hot-reload-api":1,"vueify/lib/insert-css":2}],4:[function(require,module,exports){
+;(typeof module.exports === "function"? module.exports.options: module.exports).template = "<div class={{wrapperClass}}><table class=\"vuetable {{tableClass}}\"><thead><tr><th v-if=field.visible v-for=\"field in fields\" :class=getHeaderFieldClasses(field) :id=getHeaderFieldId(field) @click=\"orderBy(field, $event)\"><input v-if=\"isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__checkbox'\" type=checkbox @change=\"toggleAllCheckboxes($event.target.checked, field.name)\" :checked=checkCheckboxesState(field.name)><div v-if=\"isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__component'\">{{field.title || ''}} <i v-if=\"isCurrentSortField(field) &amp;&amp; field.title\" class=\"{{ sortIcon(field) }}\" v-bind:style=\"{opacity: sortIconOpacity(field)}\"></i></div><div v-if=\"isSpecialField(field.name) &amp;&amp; notIn(extractName(field.name), ['__checkbox', '__component'])\">{{field.title || ''}}</div><div v-if=!isSpecialField(field.name)>{{getTitle(field) | capitalize}}&nbsp; <i v-if=isCurrentSortField(field) class=\"{{ sortIcon(field) }}\" v-bind:style=\"{opacity: sortIconOpacity(field)}\"></i></div><tbody v-cloak=\"\"><tr v-for=\"(itemNumber, item) in tableData\" :render=onRowChanged(item) :class=\"onRowClass(item, itemNumber)\"><td v-if=field.visible v-for=\"field in fields\" :class=getBodyFieldClasses(field) @click=\"onCellClicked(item, field, $event)\" @dblclick=\"onCellDoubleClicked(item, field, $event)\"><div v-if=\"isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__sequence'\">{{{ tablePagination.from + itemNumber }}}</div><input v-if=\"isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__checkbox'\" type=checkbox @change=\"toggleCheckbox($event.target.checked, item, field.name)\" :checked=\"isSelectedRow(item, field.name)\"> <button v-if=\"isSpecialField(field.name) &amp;&amp; field.name == '__actions'\" v-for=\"action in itemActions\" class=\"{{ action.class }}\" @click=\"callAction(action.name, item)\" v-attr=action.extra><i class=\"{{ action.icon }}\"></i> {{ action.label }}</button><component v-if=\"isSpecialField(field.name) &amp;&amp; extractName(field.name) == '__component'\" :is=extractArgs(field.name) :row-data=item></component><div v-if=\"!isSpecialField(field.name) &amp;&amp; hasCallback(field)\">{{{ callCallback(field, item) }}}</div><div v-if=\"!isSpecialField(field.name) &amp;&amp; !hasCallback(field)\">{{{ getObjectValue(item, field.name, \"\") }}}</div></table><div v-if=showPagination class=\"vuetable-pagination {{paginationClass}}\"><div class=\"vuetable-pagination-info {{paginationInfoClass}}\" v-html=paginationInfo></div><div v-show=\"tablePagination &amp;&amp; tablePagination.last_page > 1\" class=\"vuetable-pagination-component {{paginationComponentClass}}\"><component v-ref:pagination=\"\" :is=paginationComponent></component></div></div></div>"
+
+},{"vueify/lib/insert-css":1}],3:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -1176,18 +872,9 @@ exports.default = {
     mixins: [_VuetablePaginationMixin2.default]
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n<div class=\"{{wrapperClass}}\">\n    <a @click=\"loadPage(1)\" class=\"btn-nav {{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\">\n            <i v-if=\"icons.first != ''\" class=\"{{icons.first}}\"></i>\n            <span v-else=\"\">«</span>\n    </a>\n    <a @click=\"loadPage('prev')\" class=\"btn-nav {{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\">\n            <i v-if=\"icons.next != ''\" class=\"{{icons.prev}}\"></i>\n            <span v-else=\"\">&nbsp;‹</span>\n    </a>\n    <a v-if=\"notEnoughPages\" v-for=\"n in totalPage\" @click=\"loadPage(n+1)\" class=\"{{pageClass}} {{isCurrentPage(n+1) ? activeClass : ''}}\">\n            {{ n+1 }}\n    </a>\n   <a v-if=\"!notEnoughPages\" v-for=\"n in windowSize\" @click=\"loadPage(windowStart+n)\" class=\"{{pageClass}} {{isCurrentPage(windowStart+n) ? activeClass : ''}}\">\n        {{ windowStart+n }}\n   </a>\n    <a @click=\"loadPage('next')\" class=\"btn-nav {{linkClass}} {{isOnLastPage ? disabledClass : ''}}\">\n        <i v-if=\"icons.next != ''\" class=\"{{icons.next}}\"></i>\n        <span v-else=\"\">›&nbsp;</span>\n    </a>\n    <a @click=\"loadPage(totalPage)\" class=\"btn-nav {{linkClass}} {{isOnLastPage ? disabledClass : ''}}\">\n        <i v-if=\"icons.last != ''\" class=\"{{icons.last}}\"></i>\n        <span v-else=\"\">»</span>\n    </a>\n</div>\n"
-if (module.hot) {(function () {  module.hot.accept()
-  var hotAPI = require("vue-hot-reload-api")
-  hotAPI.install(require("vue"), true)
-  if (!hotAPI.compatible) return
-  if (!module.hot.data) {
-    hotAPI.createRecord("_v-d4e0eacc", module.exports)
-  } else {
-    hotAPI.update("_v-d4e0eacc", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
-  }
-})()}
-},{"./VuetablePaginationMixin.vue":6,"vue":"vue","vue-hot-reload-api":1}],5:[function(require,module,exports){
+;(typeof module.exports === "function"? module.exports.options: module.exports).template = "<div class={{wrapperClass}}><a @click=loadPage(1) class=\"btn-nav {{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\"><i v-if=\"icons.first != ''\" class={{icons.first}}></i> <span v-else=\"\">«</span> </a><a @click=\"loadPage('prev')\" class=\"btn-nav {{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\"><i v-if=\"icons.next != ''\" class={{icons.prev}}></i> <span v-else=\"\">&nbsp;‹</span> </a><a v-if=notEnoughPages v-for=\"n in totalPage\" @click=loadPage(n+1) class=\"{{pageClass}} {{isCurrentPage(n+1) ? activeClass : ''}}\">{{ n+1 }} </a><a v-if=!notEnoughPages v-for=\"n in windowSize\" @click=loadPage(windowStart+n) class=\"{{pageClass}} {{isCurrentPage(windowStart+n) ? activeClass : ''}}\">{{ windowStart+n }} </a><a @click=\"loadPage('next')\" class=\"btn-nav {{linkClass}} {{isOnLastPage ? disabledClass : ''}}\"><i v-if=\"icons.next != ''\" class={{icons.next}}></i> <span v-else=\"\">›&nbsp;</span> </a><a @click=loadPage(totalPage) class=\"btn-nav {{linkClass}} {{isOnLastPage ? disabledClass : ''}}\"><i v-if=\"icons.last != ''\" class={{icons.last}}></i> <span v-else=\"\">»</span></a></div>"
+
+},{"./VuetablePaginationMixin.vue":5}],4:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -1244,18 +931,9 @@ exports.default = {
     }
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n<div class=\"{{wrapperClass}}\">\n    <a @click=\"loadPage('prev')\" class=\"{{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\">\n        <i :class=\"icons.prev\"></i>\n    </a>\n    <select id=\"vuetable-pagination-dropdown\" class=\"{{dropdownClass}}\" @change=\"selectPage($event)\">\n        <option v-for=\"n in totalPage\" class=\"{{pageClass}}\" value=\"{{n+1}}\">\n            {{pageText}} {{n+1}}\n        </option>\n    </select>\n    <a @click=\"loadPage('next')\" class=\"{{linkClass}} {{isOnLastPage ? disabledClass : ''}}\">\n        <i :class=\"icons.next\"></i>\n    </a>\n</div>\n"
-if (module.hot) {(function () {  module.hot.accept()
-  var hotAPI = require("vue-hot-reload-api")
-  hotAPI.install(require("vue"), true)
-  if (!hotAPI.compatible) return
-  if (!module.hot.data) {
-    hotAPI.createRecord("_v-090edf6a", module.exports)
-  } else {
-    hotAPI.update("_v-090edf6a", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
-  }
-})()}
-},{"./VuetablePaginationMixin.vue":6,"vue":"vue","vue-hot-reload-api":1}],6:[function(require,module,exports){
+;(typeof module.exports === "function"? module.exports.options: module.exports).template = "<div class={{wrapperClass}}><a @click=\"loadPage('prev')\" class=\"{{linkClass}} {{isOnFirstPage ? disabledClass : ''}}\"><i :class=icons.prev></i></a><select id=vuetable-pagination-dropdown class={{dropdownClass}} @change=selectPage($event)><option v-for=\"n in totalPage\" class={{pageClass}} value={{n+1}}>{{pageText}} {{n+1}}</select><a @click=\"loadPage('next')\" class=\"{{linkClass}} {{isOnLastPage ? disabledClass : ''}}\"><i :class=icons.next></i></a></div>"
+
+},{"./VuetablePaginationMixin.vue":5}],5:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -1365,20 +1043,11 @@ exports.default = {
     }
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-if (module.hot) {(function () {  module.hot.accept()
-  var hotAPI = require("vue-hot-reload-api")
-  hotAPI.install(require("vue"), true)
-  if (!hotAPI.compatible) return
-  if (!module.hot.data) {
-    hotAPI.createRecord("_v-68e60fb7", module.exports)
-  } else {
-    hotAPI.update("_v-68e60fb7", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
-  }
-})()}
-},{"vue":"vue","vue-hot-reload-api":1}],7:[function(require,module,exports){
+
+},{}],6:[function(require,module,exports){
 Vue.component('vuetable-pagination', require('./components/VuetablePagination.vue'));
 
 Vue.component('vuetable-pagination-dropdown', require('./components/VuetablePaginationDropdown.vue'));
 
 Vue.component('vuetable', require('./components/Vuetable.vue'));
-},{"./components/Vuetable.vue":3,"./components/VuetablePagination.vue":4,"./components/VuetablePaginationDropdown.vue":5}]},{},[7]);
+},{"./components/Vuetable.vue":2,"./components/VuetablePagination.vue":3,"./components/VuetablePaginationDropdown.vue":4}]},{},[6]);
